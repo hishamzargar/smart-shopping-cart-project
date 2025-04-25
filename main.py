@@ -70,7 +70,7 @@ def remove_from_cart(cart, lookup, product_id, quantity=1):
         remove_qty = cart[product_id]
         del cart[product_id]
         if quantity > remove_qty:
-            print(f"Removed remaining {removed_qty} x {product_name} from cart (requested {quantity}). Item removed.")
+            print(f"Removed remaining {remove_qty} x {product_name} from cart (requested {quantity}). Item removed.")
         else:
              print(f"Removed {quantity} x {product_name} from cart. Item removed.")
     return True
