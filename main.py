@@ -15,7 +15,7 @@ products = [
 
 # For efficient lookup by product ID (LeetCode: Hashing)
 # Create a dictionary mapping product ID to the product dictionary
-product_lookup = {products["id"]: product for product in products}
+product_lookup = {product['id']: product for product in products}
 
 
 # The shopping cart (LeetCode: Hashing)
@@ -31,7 +31,7 @@ def display_products(product_list):
         print("No products available")
         return 
     for product in product_list:
-        print(f"ID: {product["id"]}, Name: {product["name"]}, Price: ${product['price']:.2f}")
+        print(f"ID: {product['id']}, Name: {product['name']}, Price: ${product['price']:.2f}")
     print("------------------------\n")
 
 def add_to_cart(cart, lookup, product_id, quantity=1):
