@@ -1,6 +1,15 @@
 import sys
 from datetime import datetime, timedelta
 
+
+# --- Phase 4: Recommendation Engine Data ---
+
+# Stores co-purchase counts: {product_id_A: {product_id_B: count}}
+# Example: {1: {3: 5}} means Laptop(1) and Keyboard(3) were bought together 5 times.
+
+copurchase_counts = {}
+
+
 # --- Phase 3: Deals and Discounts ---
 
 # Set of product IDs eligible for Buy One Get One Free
@@ -326,11 +335,90 @@ def filter_products_by_price(product_list, min_price=0.0, max_price=float('inf')
             results.append(product)
     return results
 
+# --- Phase 4 Functions ---
+
+def update_copurchase_history(cart, history_map):
+    """
+    Updates the co-purchase history based on items bought together in the cart.
+    Increments counts for every unique pair of distinct items in the cart.
+    """
+    product_ids_in_cart = list(cart.keys())
+
+    # Need at least two distinct items to form a pair
+    if len(product_ids_in_cart) < 2:
+        print("Debug Reco: Cart needs at least 2 distinct items to update co-purchase history.")
+        return
+    
+    print(f"Debug Reco Update: Processing pairs for cart items {product_ids_in_cart}")
+
+    # Iterate through all unique pairs of items in the cart
+    # (LeetCode: Combination generation concept)
+    for i in range(len(product_ids_in_cart)):
+        for j in range(i+1, len(product_ids_in_cart)):
+            item_a_id = product_ids_in_cart[i]
+            item_b_id = product_ids_in_cart[j]
+
+            # Ensure dictionaries exist, then increment count for A -> B
+            history_map.setdefault(item_a_id, {})
+            history_map[item_a_id][item_b_id] = history_map[item_a_id].get(item_b_id, 0) + 1
+            print(f"Debug Reco Update: Increased count for {item_a_id} -> {item_b_id}")
+
+            # Ensure dictionaries exist, then increment count for B -> A (for easy lookup later)
+            history_map.setdefault(item_b_id, {})
+            history_map[item_b_id][item_a_id] = history_map[item_b_id].get(item_a_id, 0) + 1
+            print(f"Debug Reco Update: Increased count for {item_b_id} -> {item_a_id}")
+    
+    print(f"Debug Reco Update: History map updated: {history_map}")
+
+
+def get_recommendations(cart, history_map, lookup, num_recommendations=3):
+    """
+    Generates product recommendations based on cart contents and co-purchase history.
+    Returns a list of top recommended product IDs.
+    (LeetCode Concepts: Hashing, Sorting)
+    """
+    if not cart:
+        return []
+    
+    recommendation_scores = {}
+    items_in_cart_ids = set(cart.keys())
+
+    print(f"\n--- Generating Recommendations based on items: {list(items_in_cart_ids)} ---")
+
+    #Iterate through items in the cart
+    for item_id in items_in_cart_ids:
+        # Check if this item exists in our co-purchase history
+        if item_id in history_map:
+            # Iterate through items commonly bought with this item
+            for other_item_id, count in history_map[item_id].items():
+                # Don't recommend items already in the cart!
+                if other_item_id not in items_in_cart_ids:
+                    # Add the co-purchase count to the score for the potential recommendation
+                    recommendation_scores[other_item_id] = recommendation_scores.get(other_item_id, 0) + count
+                    #print(f"Debug Reco Gen: Item {item_id} suggests {other_item_id} with count {count}. Total score for {other_item_id}: {recommendation_scores[other_item_id]}")
+
+    if not recommendation_scores:
+        print("No co-purchase data found for items in cart. Cannot generate recommendations yet.")
+        return []
+    
+    # Sort the potential recommendations by score (descending)
+    # Uses a lambda function similar to Phase 2 sorting
+    sorted_recommendations = sorted(recommendation_scores.items(), key=lambda item: item[1], reverse=True)
+    # Format: [(product_id1, score1), (product_id2, score2), ...]
+    #print(f"Debug Reco Gen: Sorted scores: {sorted_recommendations}")
+
+    # Get the product IDs of the top N recommendations
+    recommended_ids = [item_id for item_id, score in sorted_recommendations[:num_recommendations]]
+
+    return recommended_ids
+
 
 # --- Main Program Loop (Simple Console UI) ---
 
 def main():
     """Runs the main shopping cart interaction loop."""
+
+    copurchase_counts = {}
    
     current_product_view = list(products) # Start with the full list
     current_time = simulated_now
@@ -348,7 +436,7 @@ def main():
         print("6. Add Item to Cart")
         print("7. Remove Item from Cart")
         print("8. View Cart")
-        print("9. View Cart Total")
+        print("9. Checkout & Get Recommendations")
         print("0. Exit") # Changed exit to 0 for convention
         choice = input("Enter your choice: ")
 
@@ -412,7 +500,7 @@ def main():
         elif choice == '8':
             view_cart(shopping_cart, product_lookup, current_time)
         elif choice == '9':
-            # Calculate and print detailed total
+            print("\n--- Checking Out ---")
             if not shopping_cart:
                 print("\nYour cart is empty. Total is $0.00")
             else:
@@ -431,7 +519,29 @@ def main():
                      print("----------------------------")
                      print(f"Total:                        ${totals['final_total']:.2f}")
                 print("----------------------------\n")
+                print("Processing order...") # Simulate processing
 
+                # 2. Update co-purchase history (LEARN from this purchase)
+                print("Updating purchase history...")
+                update_copurchase_history(shopping_cart, copurchase_counts)
+
+
+                # 3. Generate recommendations based on the cart just checked out
+                print("Generating recommendations for your next purchase...")
+                recommended_ids = get_recommendations(shopping_cart, copurchase_counts, product_lookup, num_recommendations=3)
+
+                if recommended_ids:
+                    print("\n--- You might also be interested in ---")
+                    for rec_id in recommended_ids:
+                        # Lookup name - handle if ID somehow isn't in lookup (shouldn't happen)
+                        rec_name = product_lookup.get(rec_id, {}).get('name', f"Unknown Product ID: {rec_id}")
+                        print(f"- {rec_name} (ID: {rec_id})")
+                else:
+                    print("No recommendations available at this time.")
+                
+                # 4. Clear the cart for the next shopping session
+                print("Order complete. Your cart is now empty.")
+                shopping_cart.clear()
 
         # --- Exit ---
         elif choice == '0':
