@@ -1,3 +1,51 @@
+import sys
+from datetime import datetime, timedelta
+
+# --- Phase 3: Deals and Discounts ---
+
+# Set of product IDs eligible for Buy One Get One Free
+BOGO_ELIGIBLE_IDS = {2, 5}  # Mouse (ID 2), Webcam (ID 5)
+
+# Tiered discounts: List of (threshold, percentage) tuples, sorted high-to-low
+# A percentage of 0.10 means 10% off.
+TIERED_DISCOUNTS = [
+    (200.00, 0.15),  # 15% off if subtotal (after item discounts) >= $200
+    (100.00, 0.08),  # 8% off if subtotal >= $100 (and < $200)
+]
+
+# Optional: Flash Sales
+# Using a simulated 'now' based on when the prompt context was set.
+# In a real continuously running app, you'd replace simulated_now with datetime.now()
+# Current time reference: Saturday, April 26, 2025 at 11:41:15 AM CEST
+try:
+    # Attempt to create a specific datetime for reproducibility based on context
+    simulated_now = datetime(2025, 4, 26, 11, 41, 15)
+except ValueError:
+    # Fallback if the date is invalid (e.g., running in a different year)
+    print("Warning: Could not simulate specific context time. Using current system time for flash sales.")
+    simulated_now = datetime.now()
+
+print(f"(Simulating time as: {simulated_now.strftime('%Y-%m-%d %H:%M:%S')})") # Info for user
+
+FLASH_SALES = [
+    {
+        'product_id': 1,  # Laptop
+        'start_time': simulated_now - timedelta(hours=1),  # Started 1 hour ago
+        'end_time': simulated_now + timedelta(hours=1),  # Ends in 1 hour
+        'discount_type': 'percent',  # 'percent' or 'fixed'
+        'value': 0.20  # 20% off
+    },
+    {
+        'product_id': 4,  # Monitor
+        'start_time': simulated_now + timedelta(days=1),  # Starts tomorrow
+        'end_time': simulated_now + timedelta(days=1, hours=2),  # Ends 2 hours after start
+        'discount_type': 'fixed',
+        'value': 50.00  # $50 off
+    }
+]
+
+
+
 # --- Product Catalog ---
 # Using a list of dictionaries to represent products
 # Each dictionary has 'id', 'name', and 'price'
@@ -21,6 +69,18 @@ product_lookup = {product['id']: product for product in products}
 # The shopping cart (LeetCode: Hashing)
 # Dictionary mapping product ID to quantity
 shopping_cart = {}   # Example: {1: 2, 3: 1} means 2 Laptops, 1 Keyboard
+
+# --- Helper Function for Flash Sales ---
+def get_active_flash_sale(product_id, current_time):
+    """Checks if there's an active flash sale for the product."""
+    for sale in FLASH_SALES:
+        if sale['product_id'] == product_id:
+            start = sale.get('start_time')
+            end = sale.get('end_time')
+            if isinstance(start, datetime) and isinstance(end, datetime):
+                if start <= current_time <= end:
+                    return sale
+    return None
 
 # --- Core Functions ---
 
@@ -75,31 +135,141 @@ def remove_from_cart(cart, lookup, product_id, quantity=1):
              print(f"Removed {quantity} x {product_name} from cart. Item removed.")
     return True
 
-def view_cart(cart, lookup):
-    """Displays the current contents of the shopping cart."""
+def view_cart(cart, lookup, current_time):
+    """Displays the current cart contents and calculated totals including discounts."""
     print("\n--- Shopping Cart ---")
+
     if not cart:
         print("Your cart is empty.")
         print("---------------------\n")
         return
+    
     total_items = 0
+    item_discount_notes = {detail['id']: detail['note'] for detail in calculate_total(cart, lookup, current_time)['discount_details']}
     for product_id, quantity in cart.items():
         product = lookup[product_id]
         item_total = product['price'] * quantity
-        print(f"- {product['name']} (ID: {product_id}): {quantity} x ${product['price']:.2f} = ${item_total:.2f}")
+        discount_note = item_discount_notes.get(product_id, "")
+        print(f"- {product['name']} (ID: {product_id}): {quantity} x ${product['price']:.2f} = ${item_total:.2f} {discount_note}")
         total_items += quantity
 
     print(f"Total items in cart: {total_items}")
-    print("---------------------\n")
-    # We calculate the final total separately
+    # Calculate totals and display breakdown
+    totals = calculate_total(cart, lookup, current_time)
 
-def calculate_total(cart, lookup):
-    """Calculates and returns the total price of items in the cart."""
-    total_price = 0.0
+    print(f"Subtotal:                     ${totals['subtotal_before_discounts']:.2f}")
+    if totals['total_item_discount'] > 0:
+        print(f"Item Discounts (BOGO/Flash): -${totals['total_item_discount']:.2f}")
+    if totals['tiered_discount_amount'] > 0:
+        print(f"Tiered Discount ({totals['tiered_discount_percentage']:.0f}%):       -${totals['tiered_discount_amount']:.2f}")
+    if totals['total_discount_applied'] > 0:
+        print(f"Total Discounts:             -${totals['total_discount_applied']:.2f}")
+        print("---------------------")
+        print(f"Final Total:                  ${totals['final_total']:.2f}")
+    else:
+        print("---------------------")
+        print(f"Total:                        ${totals['final_total']:.2f}")
+
+
+
+def calculate_total(cart, lookup, current_time):
+    """
+    Calculates the total price including discounts (BOGO, Flash, Tiered).
+    Returns a dictionary with detailed breakdown.
+    (LeetCode Concepts: Hashing, Conditional Logic, Interval checks)
+    """
+    subtotal_before_discounts = 0.0
+    total_item_discount = 0.0
+    discount_details = []
+
     for product_id, quantity in cart.items():
         product = lookup[product_id]
-        total_price += product["price"] * quantity
-    return total_price
+        price = product['price']
+        line_item_total = price * quantity
+        subtotal_before_discounts += line_item_total
+
+        # --- Calculate potential discounts for this item ---
+        bogo_discount_amount = 0.0
+        flash_discount_amount = 0.0
+        applied_discount_note = ""
+
+        # Check BOGO (LeetCode: Hashing for quick check
+        if product_id in BOGO_ELIGIBLE_IDS:
+            free_items = quantity // 2
+            if free_items > 0:
+                bogo_discount_amount = free_items * price
+                print(f"Debug: BOGO for {product['name']} - free items: {free_items}, discount: {bogo_discount_amount}")
+
+        # Check Flash Sales (LeetCode: Interval check)
+        active_sale = get_active_flash_sale(product_id, current_time)
+        if active_sale:
+            if active_sale['discount_type'] == 'percent':
+                flash_discount_amount = line_item_total  * active_sale['value']
+            elif active_sale['discount_type'] == 'fixed':
+                # Apply fixed discount but don't make item price negative
+                flash_discount_amount = min(line_item_total, active_sale['value'] * quantity)
+                print(f"Debug: Flash Sale for {product['name']} - discount: {flash_discount_amount}")
+
+        # Apply the BEST item-specific discount (BOGO vs Flash)
+        best_item_discount = 0.0
+
+        # Decide which discount is better (or if none apply)
+        if bogo_discount_amount > 0 and bogo_discount_amount >= flash_discount_amount:
+            # Apply BOGO if it exists and is better than or equal to flash
+            best_item_discount = bogo_discount_amount
+            applied_discount_note = f"(-${best_item_discount:.2f} BOGO)" # Corrected BOGO note
+            print(f"Debug Calc Loop: Product {product_id}, Applied BOGO as best discount: {best_item_discount:.2f}")
+        elif flash_discount_amount > 0 and flash_discount_amount > bogo_discount_amount:
+            # Apply Flash if it exists and is strictly better than BOGO
+            best_item_discount = flash_discount_amount
+            applied_discount_note = f"(-${best_item_discount:.2f} Flash Sale)" # Correct Flash note
+            print(f"Debug Calc Loop: Product {product_id}, Applied Flash Sale as best discount: {best_item_discount:.2f}")
+        else:
+            # No discount or both are zero
+             print(f"Debug Calc Loop: Product {product_id}, No item discount applied (BOGO={bogo_discount_amount:.2f}, Flash={flash_discount_amount:.2f})")
+
+        # Update totals based on the determined best_item_discount (which could be 0.0)
+        total_item_discount += best_item_discount
+        print(f"Debug Calc Loop: Product {product_id}, Total Item Discount Cumulative Now: {total_item_discount:.2f}") # Renamed for clarity
+
+        # Add the note to the details list if a discount was applied
+        if applied_discount_note:
+            discount_details.append({'id': product_id, 'note': applied_discount_note})
+            print(f"Debug Calc Loop: Product {product_id}, Added discount note: {applied_discount_note}")
+
+        
+    # --- Calculate subtotal after item discounts ---
+    subtotal_after_item_discounts = subtotal_before_discounts - total_item_discount
+    print(f"Debug: Subtotal after item discounts: {subtotal_after_item_discounts}")
+
+    # --- Apply Tiered Discount ---
+    tiered_discount_amount = 0.0
+    applied_tiered_percentage = 0.0
+
+    # Iterate thresholds high to low (LeetCode: Conditional Logic)
+    for threshold, percentage in TIERED_DISCOUNTS:
+        if subtotal_after_item_discounts >= threshold:
+            tiered_discount_amount = subtotal_after_item_discounts * percentage
+            applied_tiered_percentage = percentage * 100
+            break
+    print(f"Debug: Tiered discount amount: {tiered_discount_amount}")
+
+    # --- Calculate Final Total ---
+    final_total = subtotal_after_item_discounts - tiered_discount_amount
+    total_discount_applied = total_item_discount + tiered_discount_amount
+
+    return {
+        'subtotal_before_discounts': subtotal_before_discounts,
+        'total_item_discount': total_item_discount, # Combined BOGO/Flash
+        'tiered_discount_percentage': applied_tiered_percentage,
+        'tiered_discount_amount': tiered_discount_amount,
+        'total_discount_applied': total_discount_applied,
+        'final_total': final_total,
+        'discount_details': discount_details # List of notes for specific items
+    }
+
+
+    
 
 # --- Phase 2 Functions ---
 
@@ -163,9 +333,11 @@ def main():
     """Runs the main shopping cart interaction loop."""
    
     current_product_view = list(products) # Start with the full list
+    current_time = simulated_now
 
     while True:
         print("\n===== Main Menu =====")
+        print(f"(Current Time: {current_time.strftime('%Y-%m-%d %H:%M:%S')})") 
         print("--- Catalog ---")
         print("1. View Products (Current View)") # Changed wording slightly
         print("2. Search Products by Name")
@@ -238,10 +410,28 @@ def main():
             except ValueError:
                 print("Invalid input. Please enter numbers for ID and quantity.")
         elif choice == '8':
-            view_cart(shopping_cart, product_lookup)
+            view_cart(shopping_cart, product_lookup, current_time)
         elif choice == '9':
-            total = calculate_total(shopping_cart, product_lookup)
-            print(f"\n>>> Current Cart Total: ${total:.2f} <<<")
+            # Calculate and print detailed total
+            if not shopping_cart:
+                print("\nYour cart is empty. Total is $0.00")
+            else:
+                totals = calculate_total(shopping_cart, product_lookup, current_time)
+                print("\n--- Cart Total Breakdown ---")
+                print(f"Subtotal:                     ${totals['subtotal_before_discounts']:.2f}")
+                if totals['total_item_discount'] > 0:
+                    print(f"Item Discounts (BOGO/Flash): -${totals['total_item_discount']:.2f}")
+                if totals['tiered_discount_amount'] > 0:
+                    print(f"Tiered Discount ({totals['tiered_discount_percentage']:.0f}%):       -${totals['tiered_discount_amount']:.2f}")
+                if totals['total_discount_applied'] > 0:
+                    print(f"Total Discounts:             -${totals['total_discount_applied']:.2f}")
+                    print("----------------------------")
+                    print(f"Final Total:                  ${totals['final_total']:.2f}")
+                else:
+                     print("----------------------------")
+                     print(f"Total:                        ${totals['final_total']:.2f}")
+                print("----------------------------\n")
+
 
         # --- Exit ---
         elif choice == '0':
